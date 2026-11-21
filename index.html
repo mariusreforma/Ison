@@ -1,4 +1,4 @@
-<!doctype html><html lang="ro"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ison - test audio</title><style>body{font:18px system-ui;background:#14232e;color:#fff;padding:24px;max-width:600px;margin:auto}button{font:inherit;padding:15px;border:0;border-radius:12px;background:#d7b878;margin:6px}section{background:#253947;border-radius:16px;padding:20px}small{color:#d2dbe0}</style><h1>ISON</h1><p>Versiunea 1.4 · Ison coral</p><section><button id="start">Pornește</button><button id="stop" disabled>Oprește</button><p id="status">Pregătit</p><p>Voce: <span id="pitch">—</span></p><p>Ison: <span id="drone">—</span></p><label>Volum <input id="volume" type="range" min="0" max=".45" step=".005" value=".18"></label></section><p><small>Apasă Pornește, permite microfonul și cântă. Corul intră la prima vocală cântată. Folosește căștile la volum redus. Nota de sprijin este estimată.</small></p><details><summary>Despre voce</summary><p>VocalSet: A Singing Voice Dataset — Julia Wilkins, Prem Seetharaman, Alison Wahl și Bryan Pardo. Trei voci masculine din mostrele m1_long_straight_a, m2_long_straight_o și m3_long_straight_a. Fragmente decupate, normalizate și pregătite pentru redare în buclă. Prima voce este ajustată spre „ă”. <a href="https://zenodo.org/records/1442513">Sursa</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></p></details><script>
+<!doctype html><html lang="ro"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ison - test audio</title><style>body{font:18px system-ui;background:#14232e;color:#fff;padding:24px;max-width:600px;margin:auto}button{font:inherit;padding:15px;border:0;border-radius:12px;background:#d7b878;margin:6px}section{background:#253947;border-radius:16px;padding:20px}small{color:#d2dbe0}</style><h1>ISON</h1><p>Versiunea 1.5 · Ison coral</p><section><button id="start">Pornește</button><button id="stop" disabled>Oprește</button><p id="status">Pregătit</p><p>Voce: <span id="pitch">—</span></p><p>Ison: <span id="drone">—</span></p><label>Volum <input id="volume" type="range" min="0" max=".45" step=".005" value=".18"></label></section><p><small>Apasă Pornește, permite microfonul și cântă. Corul intră la prima vocală cântată. Folosește căștile la volum redus. Nota de sprijin este estimată.</small></p><details><summary>Despre voce</summary><p>VocalSet: A Singing Voice Dataset — Julia Wilkins, Prem Seetharaman, Alison Wahl și Bryan Pardo. Trei voci masculine din mostrele m1_long_straight_a, m2_long_straight_o și m3_long_straight_a. Fragmente decupate, normalizate și pregătite pentru redare în buclă. Prima voce este ajustată spre „ă”. <a href="https://zenodo.org/records/1442513">Sursa</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></p></details><script>
 const el = id => document.getElementById(id);
 const names = ['Do','Do♯','Re','Mi♭','Mi','Fa','Fa♯','Sol','La♭','La','Si♭','Si'];
 const note = midi => names[midi % 12] + (Math.floor(midi / 12) - 1);
@@ -70,40 +70,44 @@ function tracker() {
   let lastVoice = null;
   let anchor = null;
   let reference = null;
-  let acquired = false;
   let recent = [];
+  let lastChange = -Infinity;
   return function update(freq, now, held = false) {
-    if (held && acquired) lastVoice = now;
+    if (held && anchor !== null) lastVoice = now;
     if (lastVoice !== null && now - lastVoice > 1.2) {
-      anchor = null;
-      reference = null;
-      acquired = false;
+      anchor = reference = null;
       recent = [];
     }
     if (!freq) return {pitch: null, anchor};
+    if (lastVoice !== null && now - lastVoice > 0.36) recent = [];
     lastVoice = now;
     const pitch = Math.round(69 + 12 * Math.log2(freq / 440));
-    recent = recent.filter(frame => now - frame.time < 1.5);
-    recent.push({pitch, time: now});
-    const descending = reference !== null && pitch < reference;
-    const changing = reference !== null && pitch !== reference;
-    const window = descending ? 0.55 : changing ? 1.5 : 0.24;
-    const evidence = recent.filter(frame => now - frame.time <= window);
-    const matching = evidence.filter(frame => frame.pitch === pitch);
-    const span = now - matching[0].time;
-    const minSpan = descending ? 0.36 : changing ? 1.05 : 0;
-    const minFrames = descending ? 7 : changing ? 16 : 1;
-    if (span >= minSpan && matching.length >= minFrames
-        && matching.length >= evidence.length * (changing ? 0.80 : 0.60)) {
-      if (reference === null) {
-        anchor = 44 + ((pitch - 44) % 12 + 12) % 12;
-      } else {
-        anchor += pitch - reference;
-        while (anchor < 36) anchor += 12;
-        while (anchor > 60) anchor -= 12;
-      }
+    if (reference === null) {
       reference = pitch;
-      acquired = true;
+      anchor = 44 + ((pitch - 44) % 12 + 12) % 12;
+      lastChange = now;
+      return {pitch, anchor};
+    }
+    recent = recent.filter(frame => now - frame.time <= 1.2);
+    recent.push({pitch, time: now});
+    // Use the contour over a phrase fragment, including passing tones.
+    // A single excursion and its return should leave the support in place.
+    if (recent.length >= 12 && now - lastChange >= 1.2) {
+      const direction = Math.sign(pitch - reference);
+      const side = recent.filter(f => Math.sign(f.pitch - reference) === direction);
+      if (direction && side.length >= 0.80 * recent.length &&
+          now - side[0].time >= 0.85) {
+        const ending = recent.filter(f => now - f.time <= 0.48)
+                             .map(f => f.pitch).sort((a, b) => a - b);
+        const target = ending[Math.floor(ending.length / 2)];
+        if (Math.sign(target - reference) === direction) {
+          const step = Math.min(4, Math.abs(target - reference)) * direction;
+          anchor = Math.max(36, Math.min(60, anchor + step));
+          reference = target;
+          lastChange = now;
+          recent = [];
+        }
+      }
     }
     return {pitch, anchor};
   };
