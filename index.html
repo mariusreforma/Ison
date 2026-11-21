@@ -1,4 +1,4 @@
-<!doctype html><html lang="ro"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ison - test audio</title><style>body{font:18px system-ui;background:#14232e;color:#fff;padding:24px;max-width:600px;margin:auto}button{font:inherit;padding:15px;border:0;border-radius:12px;background:#d7b878;margin:6px}section{background:#253947;border-radius:16px;padding:20px}small{color:#d2dbe0}</style><h1>ISON</h1><p>Versiunea 1.8 · Probă pe Troparul Învierii, glasul 8</p><section><button id="start">Pornește</button><button id="stop" disabled>Oprește</button><p id="status">Pregătit</p><p>Voce: <span id="pitch">—</span></p><p>Ison: <span id="drone">—</span></p><label>Volum <input id="volume" type="range" min="0" max=".45" step=".005" value=".18"></label></section><p><small>Apasă Pornește, permite microfonul și cântă. Corul intră la prima vocală cântată. Folosește căștile la volum redus. Nota de sprijin este estimată.</small></p><details><summary>Despre voce</summary><p>VocalSet: A Singing Voice Dataset — Julia Wilkins, Prem Seetharaman, Alison Wahl și Bryan Pardo. Trei voci masculine din mostrele m1_long_straight_a, m2_long_straight_o și m3_long_straight_a. Fragmente decupate, normalizate și pregătite pentru redare în buclă. Prima voce este ajustată spre „ă”. <a href="https://zenodo.org/records/1442513">Sursa</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></p></details><script>
+<!doctype html><html lang="ro"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ison - test audio</title><style>body{font:18px system-ui;background:#14232e;color:#fff;padding:24px;max-width:600px;margin:auto}button{font:inherit;padding:15px;border:0;border-radius:12px;background:#d7b878;margin:6px}section{background:#253947;border-radius:16px;padding:20px}small{color:#d2dbe0}</style><h1>ISON</h1><p>Versiunea 1.9 · Probă pe Troparul Învierii, glasul 8</p><section><button id="start">Pornește</button><button id="stop" disabled>Oprește</button><p id="status">Pregătit</p><p>Voce: <span id="pitch">—</span></p><p>Ison: <span id="drone">—</span></p><label>Volum <input id="volume" type="range" min="0" max=".45" step=".005" value=".18"></label></section><p><small>Apasă Pornește, permite microfonul și cântă. Corul intră la prima vocală cântată. Folosește căștile la volum redus. Nota de sprijin este estimată.</small></p><details><summary>Despre voce</summary><p>VocalSet: A Singing Voice Dataset — Julia Wilkins, Prem Seetharaman, Alison Wahl și Bryan Pardo. Trei voci masculine din mostrele m1_long_straight_a, m2_long_straight_o și m3_long_straight_a. Fragmente decupate, normalizate și pregătite pentru redare în buclă. Prima voce este ajustată spre „ă”. <a href="https://zenodo.org/records/1442513">Sursa</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></p></details><script>
 const el = id => document.getElementById(id);
 const names = ['Do','Do♯','Re','Mi♭','Mi','Fa','Fa♯','Sol','La♭','La','Si♭','Si'];
 const note = midi => names[midi % 12] + (Math.floor(midi / 12) - 1);
@@ -70,14 +70,18 @@ function stillSinging(samples, rate, frequency) {
 function tracker() {
   let lastVoice = null, anchor = null, center = null;
   let phrase = [], boundary = true;
+  let opening = true;
+  const openingMidi = 69 + 12 * Math.log2(135.98 / 440);
+  const output = () => anchor !== null && opening ? openingMidi : anchor;
   return function update(freq, now, held = false) {
     if (held && anchor !== null) lastVoice = now;
     if (lastVoice !== null && now - lastVoice > 0.34) {
+      opening = false;
       phrase = [];
       boundary = true;
       if (now - lastVoice > 1.2) anchor = center = null;
     }
-    if (!freq) return {pitch: null, anchor};
+    if (!freq) return {pitch: null, anchor: output()};
     lastVoice = now;
     const pitch = Math.round(69 + 12 * Math.log2(freq / 440));
     if (anchor === null) anchor = 44 + ((pitch - 44) % 12 + 12) % 12;
@@ -92,6 +96,7 @@ function tracker() {
       const agreement = pitches.filter(n => Math.sign(n - center) === side).length / pitches.length;
       if (center === null) center = target;
       else if (Math.abs(target - center) >= 2 && agreement >= (boundary ? 0.75 : 0.90)) {
+        opening = false;
         const shift = side * Math.min(3, Math.abs(target - center));
         anchor = Math.max(36, Math.min(60, anchor + shift));
         center = target;
@@ -99,7 +104,7 @@ function tracker() {
       }
       boundary = false;
     }
-    return {pitch, anchor};
+    return {pitch, anchor: output()};
   };
 }
 
@@ -159,42 +164,33 @@ function singNote(s, midi) {
   const ctx = s.ctx;
   const now = ctx.currentTime;
   const previous = s.voice;
-  const fade = ctx.createGain();
-  fade.gain.setValueAtTime(0, now);
-  const interval = previous && s.anchor != null ? midi - previous.midi : 0;
-  const transition = interval ? 0.36 + Math.abs(interval) * 0.12 : 0.025;
-  fade.gain.linearRampToValueAtTime(1, now + transition);
-  fade.connect(s.gain);
-  let remaining = s.choir.length;
+  const rounded = Math.round(midi);
+  const changing = previous && s.anchor != null;
   const voices = s.choir.map(({vowel, cents, level}, index) => {
+    const at = now + (changing ? index * 0.09 : 0);
+    const duration = changing ? 0.16 : 0.025;
     const source = ctx.createBufferSource();
-    source.buffer = noteBuffer(ctx, vowel, midi);
+    source.buffer = noteBuffer(ctx, vowel, rounded);
     source.loop = true;
-    // Keep the two vowel recordings on the same moving pitch during the blend.
-    source.detune.setValueAtTime(cents - interval * 100, now);
-    if (interval) {
-      source.detune.linearRampToValueAtTime(cents, now + transition);
-      const outgoing = previous.voices[index].detune;
-      outgoing.setValueAtTime(cents, now);
-      outgoing.linearRampToValueAtTime(cents + interval * 100, now + transition);
-    }
+    source.detune.value = cents + (midi - rounded) * 100;
     const gain = ctx.createGain();
-    gain.gain.value = level;
-    source.connect(gain).connect(fade);
-    source.onended = () => {
-      source.disconnect();
-      gain.disconnect();
-      if (--remaining === 0) fade.disconnect();
-    };
-    source.start(now, index * 0.13);
-    return source;
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.setValueCurveAtTime(Float32Array.from({length: 17}, (_, k) =>
+      level * Math.sin(k * Math.PI / 32) ** 2), at, duration);
+    source.connect(gain).connect(s.gain);
+    source.onended = () => { source.disconnect(); gain.disconnect(); };
+    source.start(at, index * 0.13);
+    const old = previous?.voices[index];
+    if (old) {
+      if (changing) {
+        old.gain.gain.setValueCurveAtTime(Float32Array.from({length: 17}, (_, k) =>
+          level * Math.cos(k * Math.PI / 32) ** 2), at, duration);
+      }
+      old.source.stop(changing ? at + duration : now);
+    }
+    return {source, gain};
   });
-  s.voice = {voices, fade, midi};
-  if (previous) {
-    previous.fade.gain.cancelAndHoldAtTime ? previous.fade.gain.cancelAndHoldAtTime(now) : previous.fade.gain.setValueAtTime(previous.fade.gain.value, now);
-    previous.fade.gain.linearRampToValueAtTime(0, now + transition);
-    previous.voices.forEach(source => source.stop(now + transition + 0.02));
-  }
+  s.voice = {voices};
 }
 
 function stop(message = 'Oprit') {
@@ -203,7 +199,7 @@ function stop(message = 'Oprit') {
   if (s) {
     clearInterval(s.timer);
     s.stream?.getTracks().forEach(track => track.stop());
-    if (s.voice) s.voice.voices.forEach(source => source.stop());
+    if (s.voice) s.voice.voices.forEach(({source}) => source.stop());
     if (s.ctx && s.ctx.state !== 'closed') s.ctx.close().catch(() => {});
   }
   el('start').disabled = false;
@@ -260,7 +256,7 @@ async function start() {
         s.gain.gain.setTargetAtTime(anchor === null ? 0 : Number(el('volume').value), now, 0.045);
         s.anchor = anchor;
       }
-      el('drone').textContent = anchor === null ? '—' : note(anchor);
+      el('drone').textContent = anchor === null ? '—' : note(Math.round(anchor));
       el('status').textContent = anchor === null ? 'Ascultă vocea…' : 'Ison activ';
     };
     tick();
