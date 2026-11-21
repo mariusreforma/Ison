@@ -88,7 +88,10 @@ function tracker() {
     const pitch = Math.round(69 + 12 * Math.log2(freq / 440));
     if (anchor === null) {
       anchor = 44 + ((pitch - 44) % 12 + 12) % 12;
-      if (opening) openingMidi = referenceDrone + anchor - 45;
+      if (opening) {
+        const shift = ((pitch - 45 + 6) % 12 + 12) % 12 - 6;
+        openingMidi = referenceDrone + shift;
+      }
     }
     phrase.push({pitch, time: now});
     phrase = phrase.filter(frame => now - frame.time <= 4.8);
