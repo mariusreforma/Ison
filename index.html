@@ -1,4 +1,4 @@
-<!doctype html><html lang="ro"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ison - test audio</title><style>body{font:18px system-ui;background:#14232e;color:#fff;padding:24px;max-width:600px;margin:auto}button{font:inherit;padding:15px;border:0;border-radius:12px;background:#d7b878;margin:6px}section{background:#253947;border-radius:16px;padding:20px}small{color:#d2dbe0}</style><h1>ISON</h1><p>Versiunea 1.3 · Ison coral</p><section><button id="start">Pornește</button><button id="stop" disabled>Oprește</button><p id="status">Pregătit</p><p>Voce: <span id="pitch">—</span></p><p>Ison: <span id="drone">—</span></p><label>Volum <input id="volume" type="range" min="0" max=".45" step=".005" value=".18"></label></section><p><small>Apasă Pornește, permite microfonul și cântă. Corul intră după prima notă stabilă. Folosește căștile la volum redus. Nota de sprijin este estimată.</small></p><details><summary>Despre voce</summary><p>VocalSet: A Singing Voice Dataset — Julia Wilkins, Prem Seetharaman, Alison Wahl și Bryan Pardo. Trei voci masculine din mostrele m1_long_straight_a, m2_long_straight_o și m3_long_straight_a. Fragmente decupate, normalizate și pregătite pentru redare în buclă. Prima voce este ajustată spre „ă”. <a href="https://zenodo.org/records/1442513">Sursa</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></p></details><script>
+<!doctype html><html lang="ro"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ison - test audio</title><style>body{font:18px system-ui;background:#14232e;color:#fff;padding:24px;max-width:600px;margin:auto}button{font:inherit;padding:15px;border:0;border-radius:12px;background:#d7b878;margin:6px}section{background:#253947;border-radius:16px;padding:20px}small{color:#d2dbe0}</style><h1>ISON</h1><p>Versiunea 1.4 · Ison coral</p><section><button id="start">Pornește</button><button id="stop" disabled>Oprește</button><p id="status">Pregătit</p><p>Voce: <span id="pitch">—</span></p><p>Ison: <span id="drone">—</span></p><label>Volum <input id="volume" type="range" min="0" max=".45" step=".005" value=".18"></label></section><p><small>Apasă Pornește, permite microfonul și cântă. Corul intră la prima vocală cântată. Folosește căștile la volum redus. Nota de sprijin este estimată.</small></p><details><summary>Despre voce</summary><p>VocalSet: A Singing Voice Dataset — Julia Wilkins, Prem Seetharaman, Alison Wahl și Bryan Pardo. Trei voci masculine din mostrele m1_long_straight_a, m2_long_straight_o și m3_long_straight_a. Fragmente decupate, normalizate și pregătite pentru redare în buclă. Prima voce este ajustată spre „ă”. <a href="https://zenodo.org/records/1442513">Sursa</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></p></details><script>
 const el = id => document.getElementById(id);
 const names = ['Do','Do♯','Re','Mi♭','Mi','Fa','Fa♯','Sol','La♭','La','Si♭','Si'];
 const note = midi => names[midi % 12] + (Math.floor(midi / 12) - 1);
@@ -91,8 +91,8 @@ function tracker() {
     const evidence = recent.filter(frame => now - frame.time <= window);
     const matching = evidence.filter(frame => frame.pitch === pitch);
     const span = now - matching[0].time;
-    const minSpan = descending ? 0.36 : changing ? 1.05 : 0.12;
-    const minFrames = descending ? 7 : changing ? 16 : 3;
+    const minSpan = descending ? 0.36 : changing ? 1.05 : 0;
+    const minFrames = descending ? 7 : changing ? 16 : 1;
     if (span >= minSpan && matching.length >= minFrames
         && matching.length >= evidence.length * (changing ? 0.80 : 0.60)) {
       if (reference === null) {
@@ -167,7 +167,7 @@ function singNote(s, midi) {
   const previous = s.voice;
   const fade = ctx.createGain();
   fade.gain.setValueAtTime(0, now);
-  const transition = previous ? 0.24 : 0.08;
+  const transition = previous && s.anchor != null ? 0.54 : 0.025;
   fade.gain.linearRampToValueAtTime(1, now + transition);
   fade.connect(s.gain);
   let remaining = s.choir.length;
@@ -240,10 +240,14 @@ async function start() {
     const update = tracker();
     const samples = new Float32Array(analyser.fftSize);
     let lastFrequency = null;
+    let lastAnalysis = -Infinity;
     const tick = () => {
+      if (s.anchor != null && ctx.currentTime - lastAnalysis < 0.055) return;
+      lastAnalysis = ctx.currentTime;
       analyser.getFloatTimeDomainData(samples);
       const now = ctx.currentTime;
-      const frequency = detect(samples, ctx.sampleRate);
+      const frame = s.anchor == null ? samples.subarray(-2048) : samples;
+      const frequency = detect(frame, ctx.sampleRate);
       const held = frequency === null && stillSinging(samples, ctx.sampleRate, lastFrequency);
       const {pitch, anchor} = update(frequency, now, held);
       if (frequency) lastFrequency = frequency;
@@ -258,7 +262,7 @@ async function start() {
       el('status').textContent = anchor === null ? 'Ascultă vocea…' : 'Ison activ';
     };
     tick();
-    s.timer = setInterval(tick, 60);
+    s.timer = setInterval(tick, 20);
     stream.getAudioTracks()[0].onended = () => { if (active === s) stop('Microfon deconectat'); };
   } catch (error) {
     if (active === s) stop('Eroare audio: ' + error.message);
