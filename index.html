@@ -1,4 +1,4 @@
-<!doctype html><html lang="ro"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ison - test audio</title><style>body{font:18px system-ui;background:#14232e;color:#fff;padding:24px;max-width:600px;margin:auto}button{font:inherit;padding:15px;border:0;border-radius:12px;background:#d7b878;margin:6px}section{background:#253947;border-radius:16px;padding:20px}small{color:#d2dbe0}</style><h1>ISON</h1><p>Versiunea 1.0 · Ison coral</p><section><button id="start">Pornește</button><button id="stop" disabled>Oprește</button><p id="status">Pregătit</p><p>Voce: <span id="pitch">—</span></p><p>Ison: <span id="drone">—</span></p><label>Volum <input id="volume" type="range" min="0" max=".45" step=".005" value=".18"></label></section><p><small>Apasă Pornește ca să auzi Do 3. Permite microfonul și intră când ești pregătit. Folosește căștile la volum redus. Nota de sprijin este estimată.</small></p><details><summary>Despre voce</summary><p>VocalSet: A Singing Voice Dataset — Julia Wilkins, Prem Seetharaman, Alison Wahl și Bryan Pardo. Trei voci masculine din mostrele m1_long_straight_a, m2_long_straight_o și m3_long_straight_a. Fragmente decupate, normalizate și pregătite pentru redare în buclă. Prima voce este ajustată spre „ă”. <a href="https://zenodo.org/records/1442513">Sursa</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></p></details><script>
+<!doctype html><html lang="ro"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ison - test audio</title><style>body{font:18px system-ui;background:#14232e;color:#fff;padding:24px;max-width:600px;margin:auto}button{font:inherit;padding:15px;border:0;border-radius:12px;background:#d7b878;margin:6px}section{background:#253947;border-radius:16px;padding:20px}small{color:#d2dbe0}</style><h1>ISON</h1><p>Versiunea 1.1 · Ison coral</p><section><button id="start">Pornește</button><button id="stop" disabled>Oprește</button><p id="status">Pregătit</p><p>Voce: <span id="pitch">—</span></p><p>Ison: <span id="drone">—</span></p><label>Volum <input id="volume" type="range" min="0" max=".45" step=".005" value=".18"></label></section><p><small>Apasă Pornește ca să auzi Do 3. Permite microfonul și intră când ești pregătit. Folosește căștile la volum redus. Nota de sprijin este estimată.</small></p><details><summary>Despre voce</summary><p>VocalSet: A Singing Voice Dataset — Julia Wilkins, Prem Seetharaman, Alison Wahl și Bryan Pardo. Trei voci masculine din mostrele m1_long_straight_a, m2_long_straight_o și m3_long_straight_a. Fragmente decupate, normalizate și pregătite pentru redare în buclă. Prima voce este ajustată spre „ă”. <a href="https://zenodo.org/records/1442513">Sursa</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></p></details><script>
 const el = id => document.getElementById(id);
 const names = ['Do','Do♯','Re','Mi♭','Mi','Fa','Fa♯','Sol','La♭','La','Si♭','Si'];
 const note = midi => names[midi % 12] + (Math.floor(midi / 12) - 1);
@@ -43,13 +43,37 @@ function detect(samples, rate) {
   return null;
 }
 
+// When pitch identification drops out, check for a weak periodic signal
+// near the last sung frequency. This can sustain a note but never select one.
+function stillSinging(samples, rate, frequency) {
+  if (!frequency) return false;
+  const period = rate / frequency;
+  const start = Math.max(1, Math.floor(period * 0.94));
+  const end = Math.min(samples.length >> 1, Math.ceil(period * 1.06));
+  for (let lag = start; lag <= end; lag += Math.max(1, Math.floor(period / 100))) {
+    let cross = 0, power = 0, mean = 0, count = 0;
+    for (let i = 0; i < samples.length - end; i += 4) {
+      const a = samples[i], b = samples[i + lag];
+      cross += a * b;
+      power += a * a + b * b;
+      mean += a + b;
+      count++;
+    }
+    const dc = mean * mean / (2 * count);
+    const energy = power - dc;
+    if (energy > 2 * count * 0.00045 ** 2 && 2 * cross - dc > 0.50 * energy) return true;
+  }
+  return false;
+}
+
 const startingNote = 48; // Do 3, before the singer provides a reference.
 function tracker() {
   let lastVoice = null;
   let anchor = startingNote;
   let acquired = false;
   let recent = [];
-  return function update(freq, now) {
+  return function update(freq, now, held = false) {
+    if (held && acquired) lastVoice = now;
     if (lastVoice !== null && now - lastVoice > 1.2) {
       anchor = null;
       acquired = false;
@@ -205,10 +229,15 @@ async function start() {
     if (active !== s) return;
     const update = tracker();
     const samples = new Float32Array(analyser.fftSize);
+    let lastFrequency = null;
     const tick = () => {
       analyser.getFloatTimeDomainData(samples);
       const now = ctx.currentTime;
-      const {pitch, anchor} = update(detect(samples, ctx.sampleRate), now);
+      const frequency = detect(samples, ctx.sampleRate);
+      const held = frequency === null && stillSinging(samples, ctx.sampleRate, lastFrequency);
+      const {pitch, anchor} = update(frequency, now, held);
+      if (frequency) lastFrequency = frequency;
+      if (anchor === null) lastFrequency = null;
       el('pitch').textContent = pitch === null ? '—' : note(pitch);
       if (anchor !== s.anchor) {
         if (anchor !== null) singNote(s, anchor);
