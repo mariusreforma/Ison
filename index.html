@@ -1,4 +1,4 @@
-<!doctype html><html lang="ro"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ison - test audio</title><style>body{font:18px system-ui;background:#14232e;color:#fff;padding:24px;max-width:600px;margin:auto}button{font:inherit;padding:15px;border:0;border-radius:12px;background:#d7b878;margin:6px}section{background:#253947;border-radius:16px;padding:20px}small{color:#d2dbe0}</style><h1>ISON</h1><p>Versiunea 1.9 · Probă pe Troparul Învierii, glasul 8</p><section><button id="start">Pornește</button><button id="stop" disabled>Oprește</button><p id="status">Pregătit</p><p>Voce: <span id="pitch">—</span></p><p>Ison: <span id="drone">—</span></p><label>Volum <input id="volume" type="range" min="0" max=".45" step=".005" value=".18"></label></section><p><small>Apasă Pornește, permite microfonul și cântă. Corul intră la prima vocală cântată. Folosește căștile la volum redus. Nota de sprijin este estimată.</small></p><details><summary>Despre voce</summary><p>VocalSet: A Singing Voice Dataset — Julia Wilkins, Prem Seetharaman, Alison Wahl și Bryan Pardo. Trei voci masculine din mostrele m1_long_straight_a, m2_long_straight_o și m3_long_straight_a. Fragmente decupate, normalizate și pregătite pentru redare în buclă. Prima voce este ajustată spre „ă”. <a href="https://zenodo.org/records/1442513">Sursa</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></p></details><script>
+<!doctype html><html lang="ro"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ison - test audio</title><style>body{font:18px system-ui;background:#14232e;color:#fff;padding:24px;max-width:600px;margin:auto}button{font:inherit;padding:15px;border:0;border-radius:12px;background:#d7b878;margin:6px}section{background:#253947;border-radius:16px;padding:20px}small{color:#d2dbe0}</style><h1>ISON</h1><p>Versiunea 2.0 · Probă pe Troparul Învierii, glasul 8</p><section><button id="start">Pornește</button><button id="stop" disabled>Oprește</button><p id="status">Pregătit</p><p>Voce: <span id="pitch">—</span></p><p>Ison: <span id="drone">—</span></p><label>Volum <input id="volume" type="range" min="0" max=".45" step=".005" value=".18"></label></section><p><small>Apasă Pornește, permite microfonul și cântă. Corul intră la prima vocală cântată. Folosește căștile la volum redus. Nota de sprijin este estimată.</small></p><details><summary>Despre voce</summary><p>VocalSet: A Singing Voice Dataset — Julia Wilkins, Prem Seetharaman, Alison Wahl și Bryan Pardo. Trei voci masculine din mostrele m1_long_straight_a, m2_long_straight_o și m3_long_straight_a. Fragmente decupate, normalizate și pregătite pentru redare în buclă. Prima voce este ajustată spre „ă”. <a href="https://zenodo.org/records/1442513">Sursa</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></p></details><script>
 const el = id => document.getElementById(id);
 const names = ['Do','Do♯','Re','Mi♭','Mi','Fa','Fa♯','Sol','La♭','La','Si♭','Si'];
 const note = midi => names[midi % 12] + (Math.floor(midi / 12) - 1);
@@ -71,7 +71,9 @@ function tracker() {
   let lastVoice = null, anchor = null, center = null;
   let phrase = [], boundary = true;
   let opening = true;
-  const openingMidi = 69 + 12 * Math.log2(135.98 / 440);
+  // The reference starts on A2. Transpose its approved opening drone to the singer's key.
+  const referenceDrone = 69 + 12 * Math.log2(135.98 / 440);
+  let openingMidi = null;
   const output = () => anchor !== null && opening ? openingMidi : anchor;
   return function update(freq, now, held = false) {
     if (held && anchor !== null) lastVoice = now;
@@ -84,7 +86,10 @@ function tracker() {
     if (!freq) return {pitch: null, anchor: output()};
     lastVoice = now;
     const pitch = Math.round(69 + 12 * Math.log2(freq / 440));
-    if (anchor === null) anchor = 44 + ((pitch - 44) % 12 + 12) % 12;
+    if (anchor === null) {
+      anchor = 44 + ((pitch - 44) % 12 + 12) % 12;
+      if (opening) openingMidi = referenceDrone + anchor - 45;
+    }
     phrase.push({pitch, time: now});
     phrase = phrase.filter(frame => now - frame.time <= 4.8);
     const middle = values => values.slice().sort((a,b) => a-b)[Math.floor(values.length / 2)];
@@ -167,8 +172,8 @@ function singNote(s, midi) {
   const rounded = Math.round(midi);
   const changing = previous && s.anchor != null;
   const voices = s.choir.map(({vowel, cents, level}, index) => {
-    const at = now + (changing ? index * 0.09 : 0);
-    const duration = changing ? 0.16 : 0.025;
+    const at = now + (changing ? (2 - index) * 0.21 : 0);
+    const duration = changing ? 0.38 : 0.025;
     const source = ctx.createBufferSource();
     source.buffer = noteBuffer(ctx, vowel, rounded);
     source.loop = true;
